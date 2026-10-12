@@ -1,32 +1,14 @@
 #include <cstddef>
 #include <iostream>
-#include <new>       // std::nothrow
+#include <new>
 
 class Vector {
-public:
-    using size_type = std::size_t;
-    // using diff_type = std::ptrdiff_t;
-
-    // Конструктор по умолчанию создаёт пустой владеющий вектор.
+  public:
     Vector() : data_(nullptr), size_(0), owns_memory_(true) {}
 
-    // Если size отрицательный или память не выделилась, создаётся пустой вектор.
-    explicit Vector(int size)
-        : data_(nullptr), size_(0), owns_memory_(true) {
-        if (size >= 0) {
-            size_ = size;
-            data_ = Allocate(size_);
+    explicit Vector(int size) : Vector(size, 0.0) {}
 
-            if (data_ == nullptr && size_ != 0) {
-                size_ = 0;
-            } else {
-                Fill(data_, size_, 0.0);
-            }
-        }
-    }
-
-    Vector(int size, double value)
-        : data_(nullptr), size_(0), owns_memory_(true) {
+    Vector(int size, double value) : data_(nullptr), size_(0), owns_memory_(true) {
         if (size >= 0) {
             size_ = size;
             data_ = Allocate(size_);
@@ -39,21 +21,14 @@ public:
         }
     }
 
-    // Внешний массив не удаляется этим объектом.
-    // При неверных данных получается пустой владеющий вектор.
-    Vector(double* external_data, int size)
-        : data_(nullptr), size_(0), owns_memory_(true) {
+    Vector(double *external_data, int size) : data_(nullptr), size_(0), owns_memory_(false) {
         if (size >= 0 && (size == 0 || external_data != nullptr)) {
             data_ = external_data;
             size_ = size;
-            owns_memory_ = false;
         }
     }
 
-    // Копирование владеющего вектора создаёт новый массив.
-    // Копирование невладеющего вектора копирует только адрес внешнего массива.
-    Vector(const Vector& other)
-        : data_(nullptr), size_(0), owns_memory_(other.owns_memory_) {
+    Vector(const Vector &other) : data_(nullptr), size_(0), owns_memory_(other.owns_memory_) {
         if (other.owns_memory_) {
             data_ = Allocate(other.size_);
             if (data_ != nullptr || other.size_ == 0) {
@@ -66,51 +41,17 @@ public:
         }
     }
 
-    // Деструктор вызывается автоматически при уничтожении объекта.
     ~Vector() {
         if (owns_memory_) {
             delete[] data_;
         }
     }
 
-    // Присваивание уже существующему объекту: например, a = b.
-    Vector& operator=(const Vector& other) {
-        if (this == &other) {
-            return *this; // Защита от присваивания объекта самому себе.
-        }
+    int Size() const { return size_; }
 
-        if (owns_memory_) {
-            delete[] data_;
-        }
+    bool OwnsMemory() const { return owns_memory_; }
 
-        data_ = nullptr;
-        size_ = 0;
-        owns_memory_ = other.owns_memory_;
-
-        if (other.owns_memory_) {
-            data_ = Allocate(other.size_);
-            if (data_ != nullptr || other.size_ == 0) {
-                size_ = other.size_;
-                Copy(data_, other.data_, size_);
-            }
-        } else {
-            data_ = other.data_;
-            size_ = other.size_;
-        }
-
-        return *this;
-    }
-
-    size_type Size() const {
-        return size_;
-    }
-
-    bool OwnsMemory() const {
-        return owns_memory_;
-    }
-
-    // true означает успех, false — неверный индекс.
-    bool SetElement(size_type index, double value) {
+    bool SetElement(int index, double value) {
         if (index >= size_) {
             return false;
         }
@@ -118,32 +59,38 @@ public:
         return true;
     }
 
-    // Значение возвращается через второй параметр.
-    bool GetElement(size_type index, double& value) const {
-        if (index >= size_) {
-            return false;
+    double GetElement(int index) const {
+        if (size_ == 0) {
+            return 0.0;
         }
-        value = data_[index];
-        return true;
+
+        if (index >= size_) {
+            index = size_ - 1;
+        }
+
+        return data_[index];
     }
 
-    // Результат записывается в result. Метод не создаёт копий векторов.
-    bool Dot(const Vector& other, double& result) const {
+    double Dot(const Vector &other) const {
         if (size_ != other.size_) {
-            return false;
+            std::cout << "Ошибка: размеры векторов различаются\n";
+            return 0.0;
         }
 
-        result = 0.0;
-        for (size_type i = 0; i < size_; ++i) {
+        double result = 0.0;
+        for (int i = 0; i < size_; ++i) {
             result += data_[i] * other.data_[i];
         }
-        return true;
+        return result;
     }
 
-    // Подключает внешний массив. При ошибке старое состояние сохраняется.
-    bool Link(double* external_data, int size) {
+    void Link(double *external_data, int size) {
+        if (external_data == data_)
+            return;
+
         if (size < 0 || (size != 0 && external_data == nullptr)) {
-            return false;
+            std::cout << "Ошибка: неверные данные для Link\n";
+            return;
         }
 
         if (owns_memory_) {
@@ -153,58 +100,56 @@ public:
         data_ = external_data;
         size_ = size;
         owns_memory_ = false;
-        return true;
     }
 
-    // Создаёт собственную копию внешнего массива.
-    bool Unlink() {
+    // Создаёт собственную копию внешнего массива
+    void Unlink() {
         if (owns_memory_) {
-            return true; // Уже владеем памятью, делать ничего не нужно.
+            return;
         }
 
-        double* new_data = Allocate(size_);
+        double *new_data = Allocate(size_);
         if (new_data == nullptr && size_ != 0) {
-            return false;
+            std::cout << "Ошибка: не удалось выделить память для Unlink\n";
+            return;
         }
 
         Copy(new_data, data_, size_);
         data_ = new_data;
         owns_memory_ = true;
-        return true;
     }
 
-private:
-    double* data_;
-    size_type size_;
+  private:
+    double *data_;
+    int size_;
     bool owns_memory_;
 
-    static double* Allocate(size_type size) {
+    static double *Allocate(int size) {
         if (size == 0) {
             return nullptr;
         }
-        return new double[size];
+        return new (std::nothrow) double[size];
     }
 
-    static void Fill(double* data, size_type size, double value) {
-        for (size_type i = 0; i < size; ++i) {
+    static void Fill(double *data, int size, double value) {
+        for (int i = 0; i < size; ++i) {
             data[i] = value;
         }
     }
 
-    static void Copy(double* destination, const double* source, size_type size) {
-        for (size_type i = 0; i < size; ++i) {
+    static void Copy(double *destination, const double *source, int size) {
+        for (int i = 0; i < size; ++i) {
             destination[i] = source[i];
         }
     }
 };
 
-void Print(const char* name, const Vector& vector) {
-    std::cout << name << " (size=" << vector.Size()
-              << ", owns=" << std::boolalpha << vector.OwnsMemory() << "): [";
+void Print(const char *name, const Vector &vector) {
+    std::cout << name << " (size=" << vector.Size() << ", owns=" << std::boolalpha
+              << vector.OwnsMemory() << "): [";
 
-    for (Vector::size_type i = 0; i < vector.Size(); ++i) {
-        double value = 0.0;
-        vector.GetElement(i, value);
+    for (int i = 0; i < vector.Size(); ++i) {
+        double value = vector.GetElement(i);
         if (i != 0) {
             std::cout << ", ";
         }
@@ -226,55 +171,63 @@ int main() {
     Print("zeros", zeros);
     Print("filled", filled);
 
-    // Для владеющего вектора создаётся независимая копия.
+    // Копирование владеющего вектора создаёт независимую копию
     Vector owning_copy(zeros);
+
     zeros.SetElement(0, 100.0);
+
     Print("zeros", zeros);
     Print("owning_copy", owning_copy);
 
+    // Копирование невладеющего вектора копирует адрес внешнего массива
     double external[] = {10.0, 20.0, 30.0};
+
     Vector linked(external, 3);
     Vector linked_copy(linked);
-    linked_copy.SetElement(1, 200.0);
-    Print("linked", linked);
-    std::cout << "external[1] = " << external[1] << "\n";
 
+    linked_copy.SetElement(1, 200.0);
+
+    Print("linked", linked);
+    Print("linked_copy", linked_copy);
+
+    // Скалярное произведение
     Vector left(3, 2.0);
     Vector right(3, 4.0);
-    double dot_result = 0.0;
-    if (left.Dot(right, dot_result)) {
-        std::cout << "Dot = " << dot_result << "\n";
-    }
 
+    double dot_result = left.Dot(right);
+
+    std::cout << "Dot = " << dot_result << "\n";
+
+    // Link + Unlink
     double second_external[] = {-1.0, -2.0, -3.0};
+
     Vector reusable(2, 8.0);
-    if (reusable.Link(second_external, 3)) {
-        reusable.SetElement(0, 123.0);
-    }
+    Print("reusable before Link", reusable);
+
+    reusable.Link(second_external, 3);
+    reusable.SetElement(0, 123.0);
+
+    Print("reusable after Link", reusable);
+
     reusable.Unlink();
     second_external[0] = 777.0;
-    Print("reusable after Unlink", reusable);
 
-    // Примеры обработки ошибок без throw/catch.
-    double value = 0.0;
-    if (!zeros.GetElement(100, value)) {
-        std::cout << "Ошибка: индекс находится за границами вектора\n";
-    }
+    Print("reusable after Unlink", reusable);
+    std::cout << "second_external[0] = " << second_external[0] << "\n";
+
+    // Проверка ошибок
 
     Vector invalid_size(-1);
     if (invalid_size.Size() == 0) {
-        std::cout << "Ошибка: отрицательный размер\n";
+        std::cout << "Ошибка: отрицательный размер обработан\n";
     }
 
-    Vector invalid_link;
-    if (!invalid_link.Link(nullptr, 2)) {
-        std::cout << "Ошибка: nullptr нельзя использовать для непустого массива\n";
-    }
+    Vector invalid_link(nullptr, 2);
+    Print("invalid_link", invalid_link);
 
     Vector different_size(2, 1.0);
-    if (!zeros.Dot(different_size, dot_result)) {
-        std::cout << "Ошибка: размеры векторов различаются\n";
-    }
+    double wrong_dot = zeros.Dot(different_size);
+    std::cout << "Dot for different sizes = " << wrong_dot << "\n";
 
     return 0;
 }
