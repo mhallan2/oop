@@ -1,7 +1,10 @@
+#include <algorithm>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 using namespace std;
 
+// Size
 struct Size {
     int rows;
     int cols;
@@ -13,12 +16,31 @@ bool operator==(const Size &first, const Size &second) {
 
 bool operator!=(const Size &first, const Size &second) { return !(first == second); }
 
+ostream &operator<<(ostream &out, const Size &size) {
+    out << size.rows << "x" << size.cols;
+    return out;
+}
+
+// Matrix
 class Matrix {
+
   private:
     int rows_;
     int cols_;
     double *data_;
     bool owns_;
+
+    void CheckCols(int col) const {
+        if (col < 1 || col > cols_) {
+            throw out_of_range("Column index out of bounds");
+        }
+    }
+
+    void CheckRows(int row) const {
+        if (row < 1 || row > rows_) {
+            throw out_of_range("Row index out of bounds");
+        }
+    }
 
     static void copyData(const double *source, double *destination, int size) {
         for (int i = 0; i < size; ++i) {
@@ -33,6 +55,61 @@ class Matrix {
     }
 
   public:
+    // Row class for non-const Matrix
+    class Row {
+
+      private:
+        Matrix &matrix_;
+        int row_;
+
+      public:
+        Row(Matrix &matrix, int row) : matrix_(matrix), row_(row) { matrix_.CheckRows(row_); }
+
+        double &operator[](int col) {
+            matrix_.CheckCols(col);
+
+            return matrix_.data_[(row_ - 1) * matrix_.cols_ + (col - 1)];
+        }
+
+        const double &operator[](int col) const {
+            matrix_.CheckCols(col);
+
+            return matrix_.data_[(row_ - 1) * matrix_.cols_ + (col - 1)];
+        }
+
+        int Size() const { return matrix_.cols_; }
+
+        operator Matrix() const;
+    };
+
+    // Row class for const Matrix
+    class ConstRow {
+
+      private:
+        const Matrix &matrix_;
+        int row_;
+
+      public:
+        ConstRow(const Matrix &matrix, int row) : matrix_(matrix), row_(row) {
+            matrix_.CheckRows(row_);
+        }
+
+        const double &operator[](int col) const {
+            matrix_.CheckCols(col);
+
+            return matrix_.data_[(row_ - 1) * matrix_.cols_ + (col - 1)];
+        }
+
+        int Size() const { return matrix_.cols_; }
+
+        operator Matrix() const;
+    };
+
+    Row operator[](int row) { return Row(*this, row); }
+
+    ConstRow operator[](int row) const { return ConstRow(*this, row); }
+
+    // Constructors
     Matrix() : rows_(0), cols_(0), data_(nullptr), owns_(true) {}
 
     explicit Matrix(double value) : rows_(1), cols_(1), data_(new double[1]{value}), owns_(true) {}
@@ -54,8 +131,10 @@ class Matrix {
     Matrix(int rows, int cols, double *data)
         : rows_(rows), cols_(cols), data_(data), owns_(false) {}
 
+    // Rule of Five
     // 1
     ~Matrix() {
+
         if (owns_) {
             delete[] data_;
         }
@@ -75,6 +154,7 @@ class Matrix {
     // 3
     Matrix(Matrix &&other) noexcept
         : rows_(other.rows_), cols_(other.cols_), data_(other.data_), owns_(other.owns_) {
+
         other.rows_ = other.cols_ = 0;
         other.data_ = nullptr;
         other.owns_ = true;
@@ -82,6 +162,7 @@ class Matrix {
 
     // 4
     Matrix &operator=(const Matrix &other) {
+
         if (this == &other) {
             return *this;
         }
@@ -105,6 +186,7 @@ class Matrix {
 
     // 5
     Matrix &operator=(Matrix &&other) noexcept {
+
         if (this == &other) {
             return *this;
         }
@@ -126,40 +208,34 @@ class Matrix {
     }
 
     Matrix T() const {
+
         Matrix transposed(cols_, rows_);
 
         for (int i = 1; i <= rows_; ++i) {
             for (int j = 1; j <= cols_; ++j) {
-                transposed.SetElement(j, i, (*this)(i, j));
+                transposed.SetElement(j, i, GetElement(i, j));
             }
         }
 
         return transposed;
     }
 
-    // double
-    operator double() const {
-        if (rows_ == 1 && cols_ == 1) {
-            return data_[0];
-        }
-        throw invalid_argument("Matrix is not 1x1");
-    }
-
-    // []
-    Matrix operator[](int i) const {
-        // if (i < 1 || i > rows_)
-        //     throw std::out_of_range("Row index out of bounds");
-        if (rows_ == 1) {
-            return Matrix(1, 1, data_ + (i - 1));
-        }
-
-        return Matrix(1, cols_, data_ + (i - 1) * cols_);
-    }
-
-    // double operator[](int i, int j) const { return (*this)(i, j); }
-
     // ()
-    double operator()(int i, int j) const { return GetElement(i, j); }
+    double &operator()(int row, int col) {
+
+        CheckRows(row);
+        CheckCols(col);
+
+        return data_[(row - 1) * cols_ + (col - 1)];
+    }
+
+    const double &operator()(int row, int col) const {
+
+        CheckRows(row);
+        CheckCols(col);
+
+        return data_[(row - 1) * cols_ + (col - 1)];
+    }
 
     // +=
     Matrix &operator+=(const Matrix &other) {
@@ -236,84 +312,78 @@ class Matrix {
     }
 
     Matrix RPad(int rows, int cols, double value) const {
-        // if (rows <= 0 || cols <= 0)
-        //     throw std::invalid_argument("bad size");
-        int minRows = min(rows, rows_);
-        int minCols = min(cols, cols_);
-
-        Matrix res(rows, cols, value);
-
-        for (int i = 0; i < minRows; ++i) {
-            int offset = (i + (rows - minRows)) * cols + (cols - minCols);
-            copyData(data_ + i * cols_, res.data_ + offset, minCols);
+        if (rows < 0 || cols < 0) {
+            throw std::invalid_argument("Bad matrix size");
         }
 
-        return res;
+        Matrix result(rows, cols, value);
+
+        int copiedRows = min(rows, rows_);
+        int copiedCols = min(cols, cols_);
+
+        // Если уменьшаем матрицу, начинаем читать справа/снизу.
+        int sourceRow = rows_ - copiedRows;
+        int sourceCol = cols_ - copiedCols;
+
+        // Если увеличиваем матрицу, записываем вправо/вниз.
+        int destinationRow = rows - copiedRows;
+        int destinationCol = cols - copiedCols;
+
+        for (int i = 0; i < copiedRows; ++i) {
+            copyData(data_ + (sourceRow + i) * cols_ + sourceCol,
+
+                     result.data_ + (destinationRow + i) * cols + destinationCol,
+
+                     copiedCols);
+        }
+
+        return result;
     }
 
-    Matrix &LPad(int rows, int cols, double value) {
-        *this = static_cast<const Matrix &>(*this).LPad(rows, cols, value);
-        return *this;
-    }
+    Matrix LPad(int rows, int cols) const { return LPad(rows, cols, 0.0); }
+    Matrix RPad(int rows, int cols) const { return RPad(rows, cols, 0.0); }
 
-    Matrix &RPad(int rows, int cols, double value) {
-        *this = static_cast<const Matrix &>(*this).RPad(rows, cols, value);
-        return *this;
-    }
+    // Matrix &LPad(int rows, int cols, double value) {
+    //     *this = static_cast<const Matrix &>(*this).LPad(rows, cols, value);
+    //     return *this;
+    // }
+
+    // Matrix &RPad(int rows, int cols, double value) {
+    //     *this = static_cast<const Matrix &>(*this).RPad(rows, cols, value);
+    //     return *this;
+    // }
 
     // ++
-    Matrix &operator++() { return LPad(rows_ + 1, cols_ + 1, 0.0); }
+    Matrix &operator++() {
+        *this = LPad(rows_ + 1, cols_ + 1, 0.0);
+        return *this;
+    }
 
     // --
-    Matrix &operator--() { return LPad(rows_ - 1, cols_ - 1, 0.0); }
+    Matrix &operator--() {
+        *this = LPad(rows_ - 1, cols_ - 1, 0.0);
+        return *this;
+    }
 
     // ++
     Matrix operator++(int) {
         Matrix old = *this;
-        RPad(rows_ + 1, cols_ + 1, 0.0);
+        *this = RPad(rows_ + 1, cols_ + 1, 0.0);
         return old;
     }
 
     // --
     Matrix operator--(int) {
         Matrix old = *this;
-        RPad(rows_ - 1, cols_ - 1, 0.0);
+        *this = RPad(rows_ - 1, cols_ - 1, 0.0);
         return old;
     }
 
-    Matrix LPad(int rows, int cols) const { return LPad(rows, cols, 0.0); }
-    Matrix RPad(int rows, int cols) const { return RPad(rows, cols, 0.0); }
-
-    // Matrix DiagLPad(int rows, int cols, double value) const {
-    //     if (rows < rows_ || cols < cols_) {
-    //         return Matrix();
-    //     }
-
-    //     Matrix res(rows, cols, 0.0);
-    //     int n = min(rows, cols);
-    //     for (int i = 1; i <= n; ++i) {
-    //         res.SetElement(i, i, value);
-    //     }
-
-    //     return res;
-    // }
-
-    // Matrix DiagRPad(int rows, int cols, double value) const {
-    //     if (rows < rows_ || cols < cols_) {
-    //         return Matrix();
-    //     }
-
-    //     Matrix res(rows, cols, 0.0);
-    //     int n = min(rows, cols);
-    //     for (int i = 1; i <= n; ++i) {
-    //         res.SetElement(rows - n + i, cols - n + i, value);
-    //     }
-
-    //     return res;
-    // }
-
+    // Getters
     Size GetSize() const { return {rows_, cols_}; }
+
     int Rows() const { return rows_; }
+
     int Cols() const { return cols_; }
 
     bool OwnsMemory() const { return owns_; }
@@ -326,6 +396,7 @@ class Matrix {
         return data_[(i - 1) * cols_ + (j - 1)];
     }
 
+    // Setters
     void SetElement(int i, int j, double value) {
         if (i < 1 || j < 1 || i > rows_ || j > cols_) {
             throw out_of_range("Index out of bounds");
@@ -334,17 +405,35 @@ class Matrix {
         data_[(i - 1) * cols_ + (j - 1)] = value;
     }
 
+    // Friend functions
     friend ostream &operator<<(ostream &os, const Matrix &other);
     friend istream &operator>>(istream &is, Matrix &other);
     friend bool operator==(const Matrix &first, const Matrix &second);
     friend bool operator!=(const Matrix &first, const Matrix &second);
 };
 
-ostream &operator<<(ostream &out, const Size &size) {
-    out << size.rows << "x" << size.cols;
-    return out;
+// Matrix conversion
+Matrix::Row::operator Matrix() const {
+    Matrix result(1, matrix_.cols_);
+
+    for (int col = 1; col <= matrix_.cols_; ++col) {
+        result.SetElement(1, col, (*this)[col]);
+    }
+
+    return result;
 }
 
+Matrix::ConstRow::operator Matrix() const {
+    Matrix result(1, matrix_.cols_);
+
+    for (int col = 1; col <= matrix_.cols_; ++col) {
+        result.SetElement(1, col, (*this)[col]);
+    }
+
+    return result;
+}
+
+// <<
 ostream &operator<<(ostream &out, const Matrix &matrix) {
     Size size = matrix.GetSize();
     out << " (size=" << size << ", owns=" << boolalpha << matrix.OwnsMemory() << "):\n";
@@ -372,6 +461,7 @@ ostream &operator<<(ostream &out, const Matrix &matrix) {
     return out;
 }
 
+// >>
 istream &operator>>(istream &in, Matrix &matrix) {
     int rows;
     int cols;
@@ -450,9 +540,7 @@ Matrix operator-(const Matrix &first, const Matrix &second) {
 }
 
 int main() {
-    // ============================================================
     // 1. Конструкторы и владение памятью
-    // ============================================================
     cout << "========== 1. constructors ==========" << endl;
 
     Matrix empty; // 0x0, пустая
@@ -470,7 +558,7 @@ int main() {
     // view без владения (owns=false)
     double raw[] = {1, 2, 3, 4, 5, 6};
     Matrix view(2, 3, raw);
-    cout << "view (2x3, owns=false)" << view;
+    cout << "view " << view;
 
     // копия — глубокая, owns=true
     Matrix copy = filled;
@@ -483,9 +571,7 @@ int main() {
     cout << "moved-from copy" << copy; // 0x0
     cout << "moved-to" << moved;
 
-    // ============================================================
     // 2. Арифметика
-    // ============================================================
     cout << "========== 2. arithmetic ==========" << endl;
 
     Matrix a(2, 3, 1.0);
@@ -500,15 +586,13 @@ int main() {
     cout << "a += b" << a;
 
     Matrix c(3, 2, 1.0);
-    cout << "c (3x2)" << c;
-    cout << "b * c (2x3 * 3x2 = 2x2)" << (b * c);
+    cout << "c" << c;
+    cout << "b * c" << (b * c);
 
     cout << "b * 3.0" << (b * 3.0);
     cout << "2.0 * b" << (2.0 * b);
 
-    // ============================================================
     // 3. LPad / RPad — pad и crop
-    // ============================================================
     cout << "========== 3. LPad / RPad ==========" << endl;
 
     const Matrix small(1.0); // 1x1 [[1]]
@@ -539,9 +623,8 @@ int main() {
     cout << "rect (3x4)" << rect;
     cout << "rect.LPad(2,6,0) — crop строки, pad столбцы" << rect.LPad(2, 6, 0.0);
 
-    // ============================================================
     // 4. Индексация: [] и ()
-    // ============================================================
+
     cout << "========== 4. indexing ==========" << endl;
 
     Matrix A(3, 3);
@@ -551,17 +634,22 @@ int main() {
             A.SetElement(i, j, v++);
     cout << "A" << A;
 
-    cout << "A[2] — вторая строка (view)" << A[2];                             // 1x3
-    cout << "A[2][3] = " << static_cast<double>(A[2][3]) << endl;              // 6
-    cout << "A(2,3)  = " << A(2, 3) << endl;                                   // 6
-    cout << "A[2][2] через double = " << static_cast<double>(A[2][2]) << endl; // 5
+    cout << "A[2] — вторая строка (view)" << A[2];        // 1x3
+    cout << "A[2][3] = " << A[2][3] << endl;              // 6
+    cout << "A(2,3)  = " << A(2, 3) << endl;              // 6
+    cout << "A[2][2] через double = " << A[2][2] << endl; // 5
 
-    // view не владеет, но читается как строка
-    cout << "A[1]" << A[1];
+    for (int i = 1; i <= A.Rows(); ++i) {
+        cout << "Строка #" << i << A[i];
+    }
 
-    // ============================================================
+    A[1][1] = 99.0;
+    cout << "A после A[1][1] = 99" << A;
+    A(1, 2) = 88.0;
+    cout << "A после A(1,2) = 88" << A;
+
     // 5. Транспонирование
-    // ============================================================
+
     cout << "========== 5. transpose ==========" << endl;
 
     Matrix B(2, 3);
@@ -572,9 +660,8 @@ int main() {
     cout << "B (2x3)" << B;
     cout << "B.T() (3x2)" << B.T();
 
-    // ============================================================
     // 6. Степень
-    // ============================================================
+
     cout << "========== 6. power ==========" << endl;
 
     Matrix P(2, 2, 2.0);
@@ -583,9 +670,8 @@ int main() {
     cout << "P ^ 2" << (P ^ 2);
     cout << "P ^ 3" << (P ^ 3);
 
-    // ============================================================
     // 7. Инкремент / декремент
-    // ============================================================
+
     cout << "========== 7. ++ / -- ==========" << endl;
 
     Matrix m(2, 2, 3.0);
@@ -606,5 +692,6 @@ int main() {
     Matrix test(1, 1, 5.0);
     cout << "test" << test;
     cout << "--test" << --test;
+
     return 0;
 }
