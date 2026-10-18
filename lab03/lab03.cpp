@@ -2,7 +2,6 @@
 #include <iostream>
 #include <stdexcept>
 #include <utility>
-
 using namespace std;
 
 struct Size {
@@ -60,6 +59,7 @@ class Matrix {
         Row(Matrix &matrix, int index) : matrix_(matrix), index_(index) {}
 
         friend class Matrix;
+        friend ostream &operator<<(ostream &out, const Matrix::Row &row);
 
       public:
         // A[i][j] — доступ к элементу строки i.
@@ -93,6 +93,7 @@ class Matrix {
         ConstRow(const Matrix &matrix, int index) : matrix_(matrix), index_(index) {}
 
         friend class Matrix;
+        friend ostream &operator<<(ostream &out, const Matrix::ConstRow &row);
 
       public:
         const double &operator[](int col) const {
@@ -108,12 +109,24 @@ class Matrix {
   public:
     // Неконстантная матрица возвращает изменяемый прокси.
     Row operator[](int row) {
+        if (rows_ == 1) {
+            // Если матрица состоит из одной строки,
+            // индекс Row трактуем как индекс элемента.
+            CheckCols(row);
+            return Row(*this, row);
+        }
         CheckRows(row);
         return Row(*this, row);
     }
 
     // Константная матрица возвращает только читаемый прокси.
     ConstRow operator[](int row) const {
+        if (rows_ == 1) {
+            // Если матрица состоит из одной строки,
+            // индекс Row трактуем как индекс элемента.
+            CheckCols(row);
+            return ConstRow(*this, row);
+        }
         CheckRows(row);
         return ConstRow(*this, row);
     }
@@ -352,7 +365,8 @@ class Matrix {
         return *this;
     }
 
-    // friend ostream &operator<<(ostream &out, const Matrix &matrix);
+    friend ostream &operator<<(ostream &out, const Matrix::Row &row);
+    friend ostream &operator<<(ostream &out, const Matrix::ConstRow &row);
     // friend istream &operator>>(istream &in, Matrix &matrix);
 };
 
@@ -400,6 +414,32 @@ ostream &operator<<(ostream &out, const Matrix &matrix) {
     }
 
     out << "]\n";
+    return out;
+}
+
+ostream &operator<<(ostream &out, const Matrix::Row &row) {
+    // Если матрица состоит из одной строки,
+    // индекс Row трактуем как индекс элемента.
+    if (row.matrix_.rows_ == 1) {
+        row.matrix_.CheckCols(row.index_);
+        out << row.matrix_.data_[row.index_ - 1];
+        return out;
+    }
+
+    Matrix result = row;
+    out << result;
+    return out;
+}
+
+ostream &operator<<(ostream &out, const Matrix::ConstRow &row) {
+    if (row.matrix_.rows_ == 1) {
+        row.matrix_.CheckCols(row.index_);
+        out << row.matrix_.data_[row.index_ - 1];
+        return out;
+    }
+
+    Matrix result = row;
+    out << result;
     return out;
 }
 
@@ -473,12 +513,16 @@ Matrix operator^(const Matrix &matrix, int power) {
 }
 
 int main() {
-    const Matrix A(2, 3, 0.0);
+    const Matrix A(2, 3);
     Matrix row1 = A[1];
-    row1[1] = 2.0;
+    row1[2] = 5.0;
 
-    cout << "A:\n" << A;
-    cout << "row1:\n" << row1;
+    cout << "A: " << A;
+    cout << "row1: " << row1;
+
+    cout << row1[1][1] << endl;
+    cout << row1[2] << endl;
+    cout << row1 << endl;
 
     return 0;
 }
